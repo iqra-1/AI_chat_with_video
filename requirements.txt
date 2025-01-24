@@ -1,0 +1,6 @@
+langchain
+transformers
+moviepy
+openai-whisper
+open
+streamlit==1.39.0
