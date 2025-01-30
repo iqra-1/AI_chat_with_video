@@ -5,6 +5,74 @@ from langchain_integration import generate_answer_and_suggested_questions
 import tempfile
 import os
 import shutil
+from pytube import YouTube
+
+
+# def download_youtube_video(youtube_url):
+#     yt = YouTube(youtube_url)
+#     stream = yt.streams.filter(file_extension="mp4", progressive=True).first()
+#     video_path = stream.download()
+#     return video_path
+import yt_dlp
+import torch
+
+if torch.cuda.is_available():
+    print("GPU is available. Using:", torch.cuda.get_device_name(0))
+else:
+    print("No GPU found. Defaulting to CPU.")
+
+
+# def download_youtube_video(youtube_url):
+#     try:
+#         ydl_opts = {
+#             "format": "bestvideo+bestaudio/best",
+#             "outtmpl": "temp_video.mp4",
+#             "merge_output_format": "mp4",
+#             "verbose": True,
+#         }
+#         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+#             info_dict = ydl.extract_info(youtube_url, download=True)
+#             video_path = ydl.prepare_filename(info_dict)
+#             return video_path
+#     except Exception as e:
+#         raise RuntimeError(f"Failed to download video: {e}")
+
+import os
+
+# Keep track of the last processed video URL
+last_processed_url = None
+
+
+def download_youtube_video(youtube_url):
+    global last_processed_url  # Use a global variable to track the last URL
+
+    # Check if the new URL is different from the last one
+    if last_processed_url != youtube_url:
+        print("New URL detected. Cleaning up old files...")
+
+        # Delete the old video and related files
+        if os.path.exists("temp_video.mp4"):
+            os.remove("temp_video.mp4")
+            print("Deleted old video: temp_video.mp4")
+        if os.path.exists("temp_video.wav"):
+            os.remove("temp_video.wav")
+            print("Deleted old audio: temp_video.wav")
+
+        # Update the last processed URL
+        last_processed_url = youtube_url
+
+    try:
+        ydl_opts = {
+            "format": "mp4/best",
+            "outtmpl": "temp_video.mp4",  # Save as 'temp_video.mp4'
+            "verbose": True,  # Enable detailed logs
+        }
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info_dict = ydl.extract_info(youtube_url, download=True)
+            video_path = ydl.prepare_filename(info_dict)
+            return video_path
+    except Exception as e:
+        raise RuntimeError(f"Failed to download video: {e}")
 
 
 # Initialize Streamlit app
@@ -65,11 +133,23 @@ def main():
                     os.remove(audio_path)
 
         elif youtube_url:
-            st.write("Processing YouTube video...")
-            # Here, you would add code to download and transcribe the YouTube video
-            # Placeholder for actual YouTube download and transcription logic
-            st.write("YouTube processing not implemented yet.")
-            st.session_state["processed_text"] = "Sample transcript from YouTube video."
+            # st.write("Processing YouTube video...")
+            # # Here, you would add code to download and transcribe the YouTube video
+            # # Placeholder for actual YouTube download and transcription logic
+            # st.write("YouTube processing not implemented yet.")
+            # st.session_state["processed_text"] = "Sample transcript from YouTube video."
+
+            try:
+                st.write("Downloading YouTube video... This may take a moment.")
+                youtube_video_path = download_youtube_video(youtube_url)
+                audio_path = extract_audio_from_video(youtube_video_path)
+                extracted_text = transcribe_audio(audio_path)
+                st.session_state["processed_text"] = process_extracted_text(
+                    extracted_text
+                )
+                st.write("YouTube video processed successfully!")
+            except Exception as e:
+                st.error(f"Failed to process YouTube video: {e}")
 
     # Step 4: Q&A interaction - only enabled after processing text
     if st.session_state["processed_text"]:

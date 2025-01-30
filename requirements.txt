@@ -4,3 +4,4 @@ moviepy
 openai-whisper
 open
 streamlit==1.39.0
+pytube==15.0.0
