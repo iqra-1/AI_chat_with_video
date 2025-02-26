@@ -1,206 +1,246 @@
 import streamlit as st
+import yt_dlp
+import tempfile
+import os
+
 from extract_text import extract_audio_from_video, transcribe_audio
 from process_text import process_extracted_text
 from langchain_integration import generate_answer_and_suggested_questions
-import tempfile
-import os
-import shutil
-from pytube import YouTube
+
+import ssl
+
+ssl._create_default_https_context = ssl._create_unverified_context
 
 
-# def download_youtube_video(youtube_url):
-#     yt = YouTube(youtube_url)
-#     stream = yt.streams.filter(file_extension="mp4", progressive=True).first()
-#     video_path = stream.download()
-#     return video_path
-import yt_dlp
-import torch
-
-if torch.cuda.is_available():
-    print("GPU is available. Using:", torch.cuda.get_device_name(0))
-else:
-    print("No GPU found. Defaulting to CPU.")
+def sanitize_filename(filename):
+    """Clean filename by replacing spaces and removing invalid characters"""
+    sanitized = filename.replace(" ", "_")
+    sanitized = "".join(
+        [c if c.isalnum() or c in ("_", "-", ".") else "_" for c in sanitized]
+    )
+    return sanitized
 
 
-# def download_youtube_video(youtube_url):
-#     try:
-#         ydl_opts = {
-#             "format": "bestvideo+bestaudio/best",
-#             "outtmpl": "temp_video.mp4",
-#             "merge_output_format": "mp4",
-#             "verbose": True,
-#         }
-#         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-#             info_dict = ydl.extract_info(youtube_url, download=True)
-#             video_path = ydl.prepare_filename(info_dict)
-#             return video_path
-#     except Exception as e:
-#         raise RuntimeError(f"Failed to download video: {e}")
+def download_youtube_video(url, file_format="mp4"):
+    """
+    Download a YouTube video using yt-dlp.
 
-import os
+    Args:
+        url (str): YouTube video URL.
+        file_format (str): Desired file format for the video (default is 'mp4').
 
-# Keep track of the last processed video URL
-last_processed_url = None
+    Returns:
+        dict: Video metadata including title and downloaded file path.
+    """
+    ydl_opts = {
+        "format": f"bestvideo[ext={file_format}]+bestaudio[ext=m4a]/best[ext={file_format}]",
+        "outtmpl": "%(title)s.%(ext)s",
+    }
 
-
-def download_youtube_video(youtube_url):
-    global last_processed_url  # Use a global variable to track the last URL
-
-    # Check if the new URL is different from the last one
-    if last_processed_url != youtube_url:
-        print("New URL detected. Cleaning up old files...")
-
-        # Delete the old video and related files
-        if os.path.exists("temp_video.mp4"):
-            os.remove("temp_video.mp4")
-            print("Deleted old video: temp_video.mp4")
-        if os.path.exists("temp_video.wav"):
-            os.remove("temp_video.wav")
-            print("Deleted old audio: temp_video.wav")
-
-        # Update the last processed URL
-        last_processed_url = youtube_url
-
-    try:
-        ydl_opts = {
-            "format": "mp4/best",
-            "outtmpl": "temp_video.mp4",  # Save as 'temp_video.mp4'
-            "verbose": True,  # Enable detailed logs
+    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+        info = ydl.extract_info(url, download=True)
+        file_path = f"{info['title']}.{file_format}"
+        return {
+            "title": info["title"],
+            "file_path": file_path,
+            "file_name": os.path.basename(file_path),
         }
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info_dict = ydl.extract_info(youtube_url, download=True)
-            video_path = ydl.prepare_filename(info_dict)
-            return video_path
-    except Exception as e:
-        raise RuntimeError(f"Failed to download video: {e}")
 
 
-# Initialize Streamlit app
-def main():
-    # Sidebar for video upload options
-    st.sidebar.title("Upload Options")
-    st.sidebar.write("Choose a video file to upload, or paste a YouTube URL.")
+# Streamlit UI
+st.title("YouTube Video Analyzer & AI Question Generator")
 
-    # File uploader in the sidebar
+# Sidebar configuration
+st.sidebar.header("Input Configuration")
+input_method = st.sidebar.radio("Select input method:", ("YouTube URL", "File Upload"))
+
+video_source = None
+youtube_url = None
+uploaded_file = None
+
+if input_method == "YouTube URL":
+    youtube_url = st.sidebar.text_input("Enter YouTube URL:")
+    if youtube_url:
+        video_source = "youtube"
+else:
     uploaded_file = st.sidebar.file_uploader(
-        "Choose a video file", type=["mp4", "mov", "avi"]
+        "Upload a video file:", type=["mp4", "mov", "avi"]
     )
-    youtube_url = st.sidebar.text_input("Or paste a YouTube URL")
+    if uploaded_file:
+        video_source = "upload"
 
-    # Title and description
-    st.title("Video Q&A Chatbot")
-    st.write(
-        "Upload a video file or YouTube link, then ask questions about its content in a chat interface!"
-    )
+# Main content area
+if video_source == "youtube":
+    st.header("YouTube Video Details")
+    st.subheader("Selected URL:")
+    st.write(youtube_url)
 
-    # Session State for storing chat history and processed text
+elif video_source == "upload":
+    st.header("Uploaded File Details")
+    st.subheader("Selected File:")
+    st.write(uploaded_file.name)
+
+# Processing section
+st.header("Video Analysis & Question Generation")
+if st.button("Process Video"):
+    if video_source is None:
+        st.warning("Please select a video source first!")
+        st.stop()
+
+    with st.spinner("Analyzing video content..."):
+        try:
+            # Handle different input sources
+            if video_source == "youtube":
+                if (
+                    "video_info" not in st.session_state
+                    or st.session_state.video_info.get("url") != youtube_url
+                ):
+                    with st.spinner("Downloading video..."):
+                        video_info = download_youtube_video(youtube_url)
+                        video_info["url"] = youtube_url  # Store URL for validation
+                        st.session_state.video_info = video_info
+                video_path = st.session_state.video_info["file_path"]
+
+                # Display the downloaded video
+                st.subheader("Video Preview")
+                st.video(video_path)
+            else:
+                with tempfile.NamedTemporaryFile(
+                    delete=False, suffix=".mp4"
+                ) as tmp_file:
+                    tmp_file.write(uploaded_file.getbuffer())
+                    video_path = tmp_file.name
+
+                # Display the uploaded video
+                st.subheader("Video Preview")
+                st.video(video_path)
+
+            # Audio extraction
+            st.divider()
+            with st.spinner("Extracting audio..."):
+                audio_file = extract_audio_from_video(video_path)
+                st.success("Audio extracted successfully")
+
+            # Transcription
+            st.divider()
+            with st.spinner("Transcribing audio..."):
+                transcription = transcribe_audio(audio_file)
+                st.subheader("Transcription:")
+                st.text_area(
+                    "Full Transcription",
+                    transcription,
+                    height=200,
+                    label_visibility="collapsed",
+                )
+
+            # Text processing
+            st.divider()
+            with st.spinner("Processing text..."):
+                processed_text = process_extracted_text(transcription)
+                st.session_state.processed_text = (
+                    processed_text  # Store in session state
+                )
+                st.subheader("Processed Text:")
+                st.text_area(
+                    "Important Content",
+                    processed_text,
+                    height=200,
+                    label_visibility="collapsed",
+                )
+
+                # Generate download filename
+                if video_source == "youtube":
+                    raw_filename = (
+                        f"{st.session_state.video_info['title']}_transcript.txt"
+                    )
+                else:
+                    base_name = os.path.splitext(uploaded_file.name)[0]
+                    raw_filename = f"{base_name}_transcript.txt"
+
+                filename = sanitize_filename(raw_filename)
+
+                # Add download button
+                st.download_button(
+                    label="Download Processed Transcript",
+                    data=processed_text,
+                    file_name=filename,
+                    mime="text/plain",
+                )
+
+        except Exception as e:
+            st.error(f"Processing error: {str(e)}")
+        finally:
+            # Clean up temporary files for uploaded videos
+            if video_source == "upload" and "video_path" in locals():
+                try:
+                    os.unlink(video_path)
+                except Exception as e:
+                    st.warning(f"Could not clean up temporary file: {str(e)}")
+
+# Question handling – Chatbot UI
+if "processed_text" in st.session_state:
+
+    # Initialize chat history if not already in session_state
     if "chat_history" not in st.session_state:
-        st.session_state["chat_history"] = []
-    if "processed_text" not in st.session_state:
-        st.session_state["processed_text"] = None
+        st.session_state.chat_history = []
 
-    # Step 1: Process video file or YouTube URL on button click
-    if (uploaded_file or youtube_url) and st.sidebar.button("Process Video"):
-        if uploaded_file:
-            # Save the uploaded video to a temporary file
-            with tempfile.NamedTemporaryFile(
-                delete=False, suffix=".mp4"
-            ) as temp_video_file:
-                temp_video_file.write(uploaded_file.read())
-                temp_video_path = temp_video_file.name
-
-            # Copy to a new location to avoid PermissionError
-            temp_copy_path = temp_video_path + "_copy.mp4"
-            shutil.copy(temp_video_path, temp_copy_path)
-            os.remove(temp_video_path)  # Remove original temp file
-
-            # Process the copied video
-            try:
-                st.write(
-                    "Processing video and generating transcript... this may take a moment."
-                )
-                audio_path = extract_audio_from_video(temp_copy_path)
-                extracted_text = transcribe_audio(audio_path)
-                st.session_state["processed_text"] = process_extracted_text(
-                    extracted_text
-                )
-                st.write("Transcript ready! Now you can ask questions.")
-
-            finally:
-                # Clean up temporary files
-                os.remove(temp_copy_path)
-                if os.path.exists(audio_path):
-                    os.remove(audio_path)
-
-        elif youtube_url:
-            # st.write("Processing YouTube video...")
-            # # Here, you would add code to download and transcribe the YouTube video
-            # # Placeholder for actual YouTube download and transcription logic
-            # st.write("YouTube processing not implemented yet.")
-            # st.session_state["processed_text"] = "Sample transcript from YouTube video."
-
-            try:
-                st.write("Downloading YouTube video... This may take a moment.")
-                youtube_video_path = download_youtube_video(youtube_url)
-                audio_path = extract_audio_from_video(youtube_video_path)
-                extracted_text = transcribe_audio(audio_path)
-                st.session_state["processed_text"] = process_extracted_text(
-                    extracted_text
-                )
-                st.write("YouTube video processed successfully!")
-            except Exception as e:
-                st.error(f"Failed to process YouTube video: {e}")
-
-    # Step 4: Q&A interaction - only enabled after processing text
-    if st.session_state["processed_text"]:
-        question = st.text_input("Ask a question about the video content:")
-
-        if question:
-            # Retrieve answer and suggested questions
-            qa_response = generate_answer_and_suggested_questions(
-                st.session_state["processed_text"], question
+    # Check if a suggested question was clicked and saved as pending
+    if st.session_state.get("pending_question"):
+        question = st.session_state.pending_question
+        st.session_state.pending_question = ""  # clear the pending question
+        st.session_state.chat_history.append({"sender": "user", "message": question})
+        with st.spinner("Generating answer..."):
+            response = generate_answer_and_suggested_questions(
+                st.session_state.processed_text, question
             )
-            answer = qa_response["answer"]
-            suggested_questions = qa_response["suggested_questions"]
+            bot_message = {
+                "sender": "bot",
+                "message": response["answer"],
+                "suggestions": response["suggested_questions"],
+            }
+            st.session_state.chat_history.append(bot_message)
+        st.rerun()  # rerun to update the chat interface
 
-            # Append the new question and answer to the chat history
-            st.session_state["chat_history"].append(
-                {
-                    "question": question,
-                    "answer": answer,
-                    "suggestions": suggested_questions,
+    st.divider()
+    st.markdown("## Chatbot")
+
+    # Display chat history
+    chat_container = st.container()
+    with chat_container:
+        for msg_index, chat in enumerate(st.session_state.chat_history):
+            if chat["sender"] == "user":
+                st.markdown(f"**User:** {chat['message']}")
+            else:
+                st.markdown(f"**Bot:** {chat['message']}")
+                # Display suggested follow-up questions as clickable buttons
+                if chat.get("suggestions"):
+                    cols = st.columns(len(chat["suggestions"]))
+                    for idx, suggestion in enumerate(chat["suggestions"]):
+                        # Incorporate both the chat message index and suggestion index for uniqueness
+                        if cols[idx].button(suggestion, key=f"sugg_{msg_index}_{idx}"):
+                            st.session_state.pending_question = suggestion
+                            st.rerun()
+
+    # Input form at the bottom so user can type the next question
+    with st.form("question_form", clear_on_submit=True):
+        user_question = st.text_input("Enter your question about the video content:")
+        submitted = st.form_submit_button("Send")
+        if submitted and user_question:
+            st.session_state.chat_history.append(
+                {"sender": "user", "message": user_question}
+            )
+            with st.spinner("Generating answer..."):
+                response = generate_answer_and_suggested_questions(
+                    st.session_state.processed_text, user_question
+                )
+                bot_message = {
+                    "sender": "bot",
+                    "message": response["answer"],
+                    "suggestions": response["suggested_questions"],
                 }
-            )
+                st.session_state.chat_history.append(bot_message)
+            st.rerun()  # update the conversation immediately
 
-        # Display chat history
-        st.subheader("Chat History")
-        for i, chat in enumerate(st.session_state["chat_history"]):
-            st.markdown(f"**Question {i+1}:** {chat['question']}")
-            st.markdown(f"*Answer:* {chat['answer']}")
-
-            # Show follow-up questions
-            if "suggestions" in chat:
-                st.markdown("**Suggested Questions:**")
-                for suggestion in chat["suggestions"]:
-                    if st.button(suggestion, key=f"{i}-{suggestion}"):
-                        # Automatically ask the follow-up question if clicked
-                        follow_up_qa_response = generate_answer_and_suggested_questions(
-                            st.session_state["processed_text"], suggestion
-                        )
-                        follow_up_answer = follow_up_qa_response["answer"]
-                        follow_up_suggestions = follow_up_qa_response[
-                            "suggested_questions"
-                        ]
-
-                        # Append follow-up question and answer
-                        st.session_state["chat_history"].append(
-                            {
-                                "question": suggestion,
-                                "answer": follow_up_answer,
-                                "suggestions": follow_up_suggestions,
-                            }
-                        )
-
-
-if __name__ == "__main__":
-    main()
+    # Allow user to view the transcript if desired
+    with st.expander("Show Transcript"):
+        st.text_area("Full Transcription", st.session_state.processed_text, height=200)

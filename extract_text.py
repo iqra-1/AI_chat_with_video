@@ -1,12 +1,13 @@
 import whisper  # Whisper model for transcribing audio
-from moviepy.editor import VideoFileClip  # Correct import
+#from moviepy.editor import VideoFileClip  # Correct import
+from moviepy.video.io.VideoFileClip import VideoFileClip
 
-# Optional: Configure moviepy to use ffmpeg from a specific path
-import moviepy.config as mp_config
+# # Optional: Configure moviepy to use ffmpeg from a specific path
+# import moviepy.config as mp_config
 
-mp_config.change_settings(
-    {"FFMPEG_BINARY": "D:/ffmpeg-master-latest-win64-gpl/bin/ffmpeg.exe"}
-)  # Updated path to ffmpeg.exe
+# mp_config.change_settings(
+#     {"FFMPEG_BINARY": "D:/ffmpeg-master-latest-win64-gpl/bin/ffmpeg.exe"}
+# )  # Updated path to ffmpeg.exe
 
 
 def extract_audio_from_video(video_path):
