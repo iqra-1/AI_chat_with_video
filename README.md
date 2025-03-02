@@ -46,12 +46,6 @@ This project allows users to interact with an AI chatbot that provides answers a
    pip install -r requirements.txt
    ```
 
-3. Make sure you have an **OpenAI API key** if using LangChain/OpenAI integration. Set it as an environment variable or provide it directly in the script.
-
-   ```bash
-   export OPENAI_API_KEY="your-api-key"
-   ```
-
 ### Running the App
 
 1. Start the Streamlit app:
