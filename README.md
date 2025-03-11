@@ -1,7 +1,3 @@
-Here's a **README** template for your project. You can copy and paste it into your `README.md` file in the repository:
-
----
-
 # AI Chat with Video
 
 This project allows users to interact with an AI chatbot that provides answers and generates suggested questions based on the transcript of a YouTube video or uploaded video file. The chatbot uses advanced natural language processing (NLP) techniques to understand the content of the video and generate meaningful responses.
