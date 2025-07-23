@@ -16,7 +16,7 @@ This project allows users to interact with an AI chatbot that provides answers a
 - **Streamlit**: A framework for building interactive applications.
 - **yt-dlp**: A tool to download videos from YouTube and other websites.
 - **LangChain**: A framework to help with language model interactions.
-- **OpenAI API**: For generating AI responses and suggested questions.
+[comment]: <> - **OpenAI API**: For generating AI responses and suggested questions.
 - **FFmpeg**: For extracting audio from video files.
 - **Python**: Backend programming language.
 
